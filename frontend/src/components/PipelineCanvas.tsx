@@ -1,6 +1,7 @@
 import * as React from "react"
 import ReactFlow, {
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   Panel,
@@ -197,7 +198,7 @@ export function PipelineCanvas() {
         }}
         fitView
       >
-        <Background variant="dots" gap={18} size={1.6} color="rgba(255,255,255,0.14)" />
+        <Background variant={BackgroundVariant.Dots} gap={18} size={1.6} color="rgba(255,255,255,0.14)" />
         <Controls />
 
         <Panel position="bottom-right" className="!m-4 z-10">
