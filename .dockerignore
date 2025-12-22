@@ -1,0 +1,21 @@
+# Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.venv/
+venv/
+.env
+
+# Node
+**/node_modules/
+**/.vite/
+frontend/dist/
+
+# VCS/OS
+.git/
+.gitignore
+.DS_Store
+
+# Misc
+README.md
