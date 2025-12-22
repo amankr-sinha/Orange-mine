@@ -3,6 +3,7 @@ import ReactFlow, {
   Background,
   Controls,
   MiniMap,
+  Panel,
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
@@ -10,13 +11,13 @@ import ReactFlow, {
   type EdgeChange,
   type NodeChange,
   type ReactFlowInstance,
-  type MiniMapNodeProps,
 } from "reactflow"
 
 import "reactflow/dist/style.css"
 
 import { usePipelineStore } from "@/lib/pipelineStore"
 import { DataUploadNode, ModelNode, PreprocessingNode, ResultsNode, TrainTestSplitNode } from "@/components/nodes"
+import { Card } from "@/components/ui/card"
 
 const nodeTypes = {
   dataUpload: DataUploadNode,
@@ -63,61 +64,53 @@ export function PipelineCanvas() {
   const setEdges = usePipelineStore((s) => s.setEdges)
   const addNode = usePipelineStore((s) => s.addNode)
   const setSelectedNodeId = usePipelineStore((s) => s.setSelectedNodeId)
+  const selectedNodeId = usePipelineStore((s) => s.selectedNodeId)
   const isExecuting = usePipelineStore((s) => s.isExecuting)
+  const deleteNode = usePipelineStore((s) => s.deleteNode)
+  const disconnectNode = usePipelineStore((s) => s.disconnectNode)
 
   const wrapperRef = React.useRef<HTMLDivElement | null>(null)
   const [rf, setRf] = React.useState<ReactFlowInstance | null>(null)
 
-  const MiniMapNode = React.useCallback(
-    (props: MiniMapNodeProps) => {
-      const node = nodes.find((n) => n.id === props.id)
-      const t = node?.type as Kind | undefined
+  const [contextMenu, setContextMenu] = React.useState<null | { nodeId: string; x: number; y: number }>(null)
 
-      const label =
-        t === "dataUpload"
-          ? "D"
-          : t === "preprocessing"
-            ? "P"
-            : t === "trainTestSplit"
-              ? "S"
-              : t === "model"
-                ? "M"
-                : t === "results"
-                  ? "R"
-                  : ""
+  const closeContextMenu = React.useCallback(() => setContextMenu(null), [])
 
-      // Use a circular marker + a single-letter glyph (fast + reliable in SVG)
-      // (True SVG icons are possible, but this keeps minimap crisp and consistent.)
-      const r = Math.max(6, Math.min(props.width, props.height) / 2)
+  React.useEffect(() => {
+    if (!contextMenu) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeContextMenu()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [contextMenu, closeContextMenu])
 
-      return (
-        <g transform={`translate(${props.x}, ${props.y})`}>
-          <circle
-            cx={props.width / 2}
-            cy={props.height / 2}
-            r={r}
-            fill={props.color}
-            stroke={props.strokeColor}
-            strokeWidth={props.strokeWidth}
-            opacity={0.95}
-          />
-          <text
-            x={props.width / 2}
-            y={props.height / 2 + 1}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="rgba(0,0,0,0.72)"
-            fontSize={Math.max(7, r)}
-            fontWeight={700}
-            style={{ userSelect: "none" }}
-          >
-            {label}
-          </text>
-        </g>
-      )
-    },
-    [nodes]
-  )
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isExecuting) return
+      if (!selectedNodeId) return
+
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName?.toLowerCase()
+      const isTypingTarget =
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        (target?.getAttribute?.("role") === "textbox") ||
+        target?.isContentEditable
+
+      if (isTypingTarget) return
+
+      if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault()
+        deleteNode(selectedNodeId)
+        closeContextMenu()
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [isExecuting, selectedNodeId, deleteNode, closeContextMenu])
 
   const onNodesChange = React.useCallback(
     (changes: NodeChange[]) => setNodes(applyNodeChanges(changes, nodes)),
@@ -159,8 +152,29 @@ export function PipelineCanvas() {
     [rf, addNode]
   )
 
+  const onNodeContextMenu = React.useCallback(
+    (event: React.MouseEvent, node: { id: string }) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (isExecuting) return
+
+      const padding = 8
+      const menuWidth = 220
+      const menuHeight = 92
+      const maxX = Math.max(padding, window.innerWidth - menuWidth - padding)
+      const maxY = Math.max(padding, window.innerHeight - menuHeight - padding)
+
+      setContextMenu({
+        nodeId: node.id,
+        x: Math.min(event.clientX, maxX),
+        y: Math.min(event.clientY, maxY),
+      })
+    },
+    [isExecuting]
+  )
+
   return (
-    <div ref={wrapperRef} className="h-full w-full">
+    <div ref={wrapperRef} className="relative h-full w-full">
       <ReactFlow
         nodes={nodes}
         edges={edges.map((e) => ({ ...e, animated: isExecuting }))}
@@ -175,37 +189,91 @@ export function PipelineCanvas() {
         onDragOver={onDragOver}
         onDrop={onDrop}
         onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+        onNodeContextMenu={onNodeContextMenu}
         onPaneClick={() => setSelectedNodeId(undefined)}
+        onPaneContextMenu={(e) => {
+          e.preventDefault()
+          closeContextMenu()
+        }}
         fitView
       >
-        <Background gap={20} size={1} color="rgba(255,255,255,0.08)" />
+        <Background variant="dots" gap={18} size={1.6} color="rgba(255,255,255,0.14)" />
         <Controls />
-        <MiniMap
-          pannable
-          zoomable
-          nodeBorderRadius={10}
-          maskColor="rgba(0,0,0,0.35)"
-          nodeStrokeWidth={2}
-          nodeComponent={MiniMapNode}
-          nodeColor={(n) => {
-            switch (n.type) {
-              case "dataUpload":
-                return "#F4A261"
-              case "preprocessing":
-              case "trainTestSplit":
-                return "#2A9D8F"
-              case "model":
-                return "#E76F51"
-              case "results":
-                return "#8B5CF6"
-              default:
-                return "rgba(255,255,255,0.25)"
-            }
-          }}
-          nodeStrokeColor={() => "rgba(255,255,255,0.22)"}
-          className="smooth"
-        />
+
+        <Panel position="bottom-right" className="!m-4 z-10">
+          <MiniMap
+            pannable
+            zoomable
+            nodeBorderRadius={10}
+            maskColor="rgba(0,0,0,0.35)"
+            nodeStrokeWidth={2}
+            nodeColor={(n) => {
+              switch (n.type) {
+                case "dataUpload":
+                  return "#F4A261"
+                case "preprocessing":
+                case "trainTestSplit":
+                  return "#2A9D8F"
+                case "model":
+                  return "#E76F51"
+                case "results":
+                  return "#8B5CF6"
+                default:
+                  return "rgba(255,255,255,0.25)"
+              }
+            }}
+            nodeStrokeColor={() => "rgba(255,255,255,0.22)"}
+            className="smooth"
+          />
+        </Panel>
       </ReactFlow>
+
+      {!nodes.length ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <Card className="glass smooth border px-4 py-3 text-center">
+            <div className="text-sm font-semibold">Drag and Drop Nodes to Begin!</div>
+            <div className="mt-1 text-xs text-muted-foreground">Use the left sidebar to add nodes.</div>
+          </Card>
+        </div>
+      ) : null}
+
+      {contextMenu ? (
+        <div
+          className="fixed inset-0 z-50"
+          onPointerDown={() => closeContextMenu()}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            closeContextMenu()
+          }}
+        >
+          <div
+            className="absolute w-[220px] rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="smooth w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted"
+              onClick={() => {
+                deleteNode(contextMenu.nodeId)
+                closeContextMenu()
+              }}
+            >
+              Delete <span className="text-xs text-muted-foreground">(Backspace)</span>
+            </button>
+            <button
+              type="button"
+              className="smooth w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted"
+              onClick={() => {
+                disconnectNode(contextMenu.nodeId)
+                closeContextMenu()
+              }}
+            >
+              Disconnect node
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

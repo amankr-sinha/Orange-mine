@@ -195,10 +195,8 @@
   border-radius: 14px !important;
   overflow: hidden;
   border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
-  background:
-    radial-gradient(120px 90px at 20% 15%, color-mix(in oklab, var(--primary) 20%, transparent), transparent 65%),
-    radial-gradient(140px 90px at 80% 25%, color-mix(in oklab, var(--chart-1) 18%, transparent), transparent 65%),
-    color-mix(in oklab, var(--card) 78%, transparent);
+  /* Match the canvas surface (app background + dots) instead of a different card-like gradient. */
+  background: transparent !important;
   backdrop-filter: blur(10px);
   box-shadow:
     0 18px 45px color-mix(in oklab, var(--background) 30%, transparent),

@@ -14,11 +14,11 @@ export function ExecutionToasts() {
     if (!status || prev.current === status) return
 
     if (status === "success") {
-      push({ title: "Done", description: "Pipeline completed successfully." })
+      push({ title: "Done", description: "Pipeline completed successfully.", variant: "success" })
     } else if (status === "error") {
       push({ title: "Pipeline error", description: message || "Execution failed.", variant: "destructive" })
     } else if (status === "cancelled") {
-      push({ title: "Cancelled", description: "Pipeline execution cancelled." })
+      push({ title: "Cancelled", description: "Pipeline execution cancelled.", variant: "success" })
     }
 
     prev.current = status

@@ -4,9 +4,14 @@ import { Handle, Position } from "reactflow"
 
 import { cn } from "@/lib/utils"
 import { usePipelineStore } from "@/lib/pipelineStore"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 export function ModelNode({ id, data, selected }: NodeProps<{ kind: string; label: string }>) {
   const status = usePipelineStore((s) => s.nodeStatus[id])
+  const cfg = usePipelineStore((s) => (s.configs as any)[id]) as any
+  const modelType = (cfg?.config?.model_type as string | undefined) || "—"
+  const target = cfg?.config?.target_column as string | undefined
+  const features = (cfg?.config?.feature_columns as string[] | undefined) || []
 
   return (
     <div
@@ -18,9 +23,21 @@ export function ModelNode({ id, data, selected }: NodeProps<{ kind: string; labe
     >
       <div className="flex items-center gap-3">
         <div className="relative">
-          <div className="grid h-11 w-11 place-items-center rounded-full bg-[#E76F51] text-white">
-            <Brain className="h-5 w-5" />
-          </div>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="nodrag pointer-events-auto grid h-11 w-11 place-items-center rounded-full bg-[#E76F51] text-white">
+                  <Brain className="h-5 w-5" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <div className="text-sm font-medium">{data.label}</div>
+                <div className="text-xs text-muted-foreground">Type: {modelType}</div>
+                <div className="text-xs text-muted-foreground">Target: {target || "Not selected"}</div>
+                <div className="text-xs text-muted-foreground">Features: {features.length ? features.length : "None"}</div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {status ? (
             <div className="absolute -right-1 -top-1 rounded-full bg-background">
               {status === "running" ? (

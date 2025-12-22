@@ -4,9 +4,14 @@ import { Handle, Position } from "reactflow"
 
 import { cn } from "@/lib/utils"
 import { usePipelineStore } from "@/lib/pipelineStore"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 export function PreprocessingNode({ id, data, selected }: NodeProps<{ kind: string; label: string }>) {
   const status = usePipelineStore((s) => s.nodeStatus[id])
+  const cfg = usePipelineStore((s) => (s.configs as any)[id]) as any
+  const standardization = !!cfg?.config?.standardization
+  const normalization = !!cfg?.config?.normalization
+  const columns = (cfg?.config?.columns as string[] | undefined) || []
 
   return (
     <div
@@ -18,9 +23,22 @@ export function PreprocessingNode({ id, data, selected }: NodeProps<{ kind: stri
     >
       <div className="flex items-center gap-3">
         <div className="relative">
-          <div className="flow-icon flow-icon--transform grid h-11 w-11 place-items-center rounded-full text-white">
-            <Wand2 className="h-5 w-5" />
-          </div>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="nodrag pointer-events-auto flow-icon flow-icon--transform grid h-11 w-11 place-items-center rounded-full text-white">
+                  <Wand2 className="h-5 w-5" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <div className="text-sm font-medium">{data.label}</div>
+                <div className="text-xs text-muted-foreground">
+                  Ops: {standardization ? "Standardize" : "—"} {normalization ? "Normalize" : ""}
+                </div>
+                <div className="text-xs text-muted-foreground">Columns: {columns.length ? columns.join(", ") : "None selected"}</div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {status ? (
             <div className="absolute -right-1 -top-1 rounded-full bg-background">
               {status === "running" ? (

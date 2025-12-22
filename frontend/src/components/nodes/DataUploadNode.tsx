@@ -4,9 +4,14 @@ import { Handle, Position } from "reactflow"
 
 import { cn } from "@/lib/utils"
 import { usePipelineStore } from "@/lib/pipelineStore"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 export function DataUploadNode({ id, data, selected }: NodeProps<{ kind: string; label: string }>) {
   const status = usePipelineStore((s) => s.nodeStatus[id])
+  const cfg = usePipelineStore((s) => (s.configs as any)[id]) as any
+  const fileName = cfg?.config?.fileName as string | undefined
+  const datasetId = cfg?.config?.dataset_id as string | undefined
+  const hoverText = fileName ? `File: ${fileName}` : "No file uploaded yet"
 
   return (
     <div
@@ -18,9 +23,25 @@ export function DataUploadNode({ id, data, selected }: NodeProps<{ kind: string;
     >
       <div className="flex items-center gap-3">
         <div className="relative">
-          <div className="flow-icon flow-icon--data grid h-11 w-11 place-items-center rounded-full text-white">
-            <FileSpreadsheet className="h-5 w-5" />
-          </div>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  title={hoverText}
+                  className="nodrag pointer-events-auto flow-icon flow-icon--data grid h-11 w-11 place-items-center rounded-full text-white"
+                >
+                  <FileSpreadsheet className="h-5 w-5" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <div className="text-sm font-medium">{data.label}</div>
+                <div className="text-xs text-muted-foreground">
+                  {fileName ? `File: ${fileName}` : "No file uploaded yet"}
+                </div>
+                {datasetId ? <div className="text-xs text-muted-foreground">Dataset ID: {datasetId}</div> : null}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {status ? (
             <div className="absolute -right-1 -top-1 rounded-full bg-background">
               {status === "running" ? (

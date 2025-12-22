@@ -73,10 +73,27 @@ function Draggable({ item, collapsed }: { item: PaletteItem; collapsed: boolean 
     <Card
       draggable
       onDragStart={onDragStart}
-      className="smooth cursor-grab select-none p-2 hover:-translate-y-0.5 hover:bg-muted/30"
+      className={
+        "smooth cursor-grab select-none hover:-translate-y-0.5 hover:bg-muted/30 " +
+        (collapsed ? "rounded-xl border-0 bg-transparent p-1 shadow-none" : "p-2")
+      }
     >
-      <div className="flex items-center gap-2">
-        <div className={"grid h-9 w-9 place-items-center rounded-full text-white " + iconClass}>{item.icon}</div>
+      <div className={"flex items-center " + (collapsed ? "justify-center" : "gap-2")}>
+        {collapsed ? (
+          <div className={"grid h-9 w-9 place-items-center rounded-full text-white " + iconClass}>{item.icon}</div>
+        ) : (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className={"grid h-9 w-9 place-items-center rounded-full text-white " + iconClass}>{item.icon}</div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <div className="text-sm font-medium">{item.title}</div>
+                <div className="text-xs text-muted-foreground">{item.description}</div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
         {collapsed ? null : (
           <div className="min-w-0">
             <div className="truncate text-sm font-medium">{item.title}</div>
@@ -101,9 +118,27 @@ function Draggable({ item, collapsed }: { item: PaletteItem; collapsed: boolean 
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = React.useState(false)
+  const rootRef = React.useRef<HTMLDivElement | null>(null)
+
+  React.useEffect(() => {
+    if (collapsed) return
+
+    const onPointerDown = (e: PointerEvent) => {
+      const el = rootRef.current
+      if (!el) return
+      if (el.contains(e.target as Node)) return
+      setCollapsed(true)
+    }
+
+    window.addEventListener("pointerdown", onPointerDown)
+    return () => window.removeEventListener("pointerdown", onPointerDown)
+  }, [collapsed])
 
   return (
-    <div className={collapsed ? "w-16" : "w-80"}>
+    <div
+      ref={rootRef}
+      className={(collapsed ? "w-16" : "w-80") + " shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out"}
+    >
       <div className="glass smooth flex h-full flex-col border-r">
         <div className="flex items-center justify-between px-3 py-3">
           {collapsed ? null : <div className="text-sm font-semibold">Nodes</div>}

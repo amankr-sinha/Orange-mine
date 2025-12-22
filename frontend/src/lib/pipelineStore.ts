@@ -87,6 +87,10 @@ type PipelineState = {
   setNodes: (nodes: PipelineNode[]) => void
   setEdges: (edges: PipelineEdge[]) => void
 
+  deleteNode: (nodeId: string) => void
+  disconnectNode: (nodeId: string) => void
+  resetPipeline: () => void
+
   addNode: (kind: NodeKind, position: XYPosition) => void
   updateNodeConfig: (nodeId: string, patch: unknown) => void
   replaceNodeConfig: (nodeId: string, nextConfig: unknown) => void
@@ -182,6 +186,47 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),
   setNodes: (nodes) => set({ nodes }),
   setEdges: (edges) => set({ edges }),
+
+  deleteNode: (nodeId) => {
+    set((s) => {
+      const nodes = s.nodes.filter((n) => n.id !== nodeId)
+      const edges = s.edges.filter((e) => e.source !== nodeId && e.target !== nodeId)
+
+      const nextConfigs = { ...s.configs }
+      delete nextConfigs[nodeId]
+
+      const nextUndo = { ...s.undo }
+      delete nextUndo[nodeId]
+
+      return {
+        nodes,
+        edges,
+        configs: nextConfigs,
+        undo: nextUndo,
+        selectedNodeId: s.selectedNodeId === nodeId ? undefined : s.selectedNodeId,
+      }
+    })
+  },
+
+  disconnectNode: (nodeId) => {
+    set((s) => ({ edges: s.edges.filter((e) => e.source !== nodeId && e.target !== nodeId) }))
+  },
+
+  resetPipeline: () => {
+    set({
+      nodes: [],
+      edges: [],
+      configs: {},
+      undo: {},
+      selectedNodeId: undefined,
+      isExecuting: false,
+      executionId: undefined,
+      nodeStatus: {},
+      resultsPerNode: {},
+      executionStatus: undefined,
+      executionMessage: undefined,
+    })
+  },
 
   addNode: (kind, position) => {
     const id = crypto.randomUUID()
@@ -289,7 +334,13 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   stopPipeline: async () => {
     const executionId = get().executionId
     if (!executionId) return
-    await api.post(`/api/pipeline/${executionId}/cancel`)
+
+    try {
+      await api.post(`/api/pipeline/${executionId}/cancel`)
+    } finally {
+      // Optimistically unlock the UI; any final status can still be viewed from the last snapshot.
+      set({ isExecuting: false, executionStatus: "cancelled" })
+    }
   },
 
   pollExecutionOnce: async () => {

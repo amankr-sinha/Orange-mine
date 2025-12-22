@@ -15,7 +15,7 @@ export function App() {
 	const pollOnce = usePipelineStore((s) => s.pollExecutionOnce)
 
 	React.useEffect(() => {
-		if (!executionId) return
+		if (!executionId || !isExecuting) return
 
 		const t = window.setInterval(() => {
 			void pollOnce()

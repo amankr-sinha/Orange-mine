@@ -30,15 +30,148 @@ function downloadText(filename: string, text: string, mime = "text/plain") {
   URL.revokeObjectURL(url)
 }
 
-function describeToRows(describe: any) {
-  const mean = describe?.mean || {}
-  const std = describe?.std || {}
-  const cols = Object.keys(mean).slice(0, 8)
-  return cols.map((c) => ({
-    column: c,
-    mean: mean[c],
-    std: std[c],
-  }))
+function formatNumber(v: unknown, options?: { maxFractionDigits?: number }) {
+  const n = typeof v === "number" ? v : v === null || v === undefined || v === "" ? NaN : Number(v)
+  if (!Number.isFinite(n)) return ""
+  const abs = Math.abs(n)
+
+  if (abs !== 0 && abs < 0.0001) return n.toExponential(2)
+
+  const maxFractionDigits = options?.maxFractionDigits ?? 4
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: maxFractionDigits,
+  }).format(n)
+}
+
+function formatAxisNumber(v: unknown) {
+  const n = typeof v === "number" ? v : Number(v)
+  if (!Number.isFinite(n)) return ""
+  const abs = Math.abs(n)
+
+  if (abs >= 1000) {
+    return new Intl.NumberFormat(undefined, {
+      notation: "compact",
+      maximumFractionDigits: 2,
+    }).format(n)
+  }
+
+  return formatNumber(n, { maxFractionDigits: 4 })
+}
+
+function FeatureImportanceTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  const value = payload?.[0]?.value
+  return (
+    <Card className="glass border p-2">
+      <div className="text-xs font-medium">{String(label ?? "")}</div>
+      <div className="mt-1 text-xs text-muted-foreground">Importance: {formatNumber(value, { maxFractionDigits: 6 })}</div>
+    </Card>
+  )
+}
+
+function DescribeTable({ describe, maxColumns }: { describe: any; maxColumns?: number }) {
+  const statKeys = ["count", "mean", "std", "min", "25%", "50%", "75%", "max"]
+
+  const isRowOriented = (() => {
+    if (!describe || typeof describe !== "object") return false
+    return statKeys.some((k) => describe[k] && typeof describe[k] === "object")
+  })()
+
+  const cols = (() => {
+    if (!describe || typeof describe !== "object") return [] as string[]
+
+    if (isRowOriented) {
+      const firstRow = describe.mean || describe["50%"] || describe["25%"] || describe.count
+      if (firstRow && typeof firstRow === "object") {
+        const keys = Object.keys(firstRow)
+        return typeof maxColumns === "number" ? keys.slice(0, maxColumns) : keys
+      }
+      return []
+    }
+
+    // Column-oriented: { colName: { mean:..., std:..., ... }, ... }
+    const keys = Object.keys(describe)
+    const first = keys.length ? describe[keys[0]] : undefined
+    const looksLikeColumnOriented = Boolean(first && typeof first === "object" && statKeys.some((k) => k in first))
+    if (!looksLikeColumnOriented) return []
+
+    return typeof maxColumns === "number" ? keys.slice(0, maxColumns) : keys
+  })()
+
+  const getVal = (rowKey: string, col: string) => {
+    if (!describe) return undefined
+
+    const read = (stat: string, column: string) => {
+      if (isRowOriented) return describe?.[stat]?.[column]
+      return describe?.[column]?.[stat]
+    }
+
+    if (rowKey === "variance") {
+      const std = read("std", col)
+      const n = typeof std === "number" ? std : Number(std)
+      return Number.isFinite(n) ? n * n : undefined
+    }
+    if (rowKey === "range") {
+      const min = read("min", col)
+      const max = read("max", col)
+      const minN = typeof min === "number" ? min : Number(min)
+      const maxN = typeof max === "number" ? max : Number(max)
+      return Number.isFinite(minN) && Number.isFinite(maxN) ? maxN - minN : undefined
+    }
+
+    // Support "median" key if backend uses it instead of "50%".
+    const stat = rowKey === "50%" ? (read("50%", col) === undefined ? "median" : "50%") : rowKey
+    return read(stat, col)
+  }
+
+  const rows: Array<{ key: string; label: string; digits?: number }> = [
+    { key: "count", label: "count", digits: 0 },
+    { key: "mean", label: "mean" },
+    { key: "std", label: "std" },
+    { key: "min", label: "min" },
+    { key: "25%", label: "25%" },
+    { key: "50%", label: "50%" },
+    { key: "75%", label: "75%" },
+    { key: "max", label: "max" },
+    { key: "variance", label: "variance" },
+    { key: "range", label: "range" },
+  ]
+
+  if (!cols.length) {
+    return <div className="text-sm text-muted-foreground">No numeric columns found.</div>
+  }
+
+  return (
+    <div className="mt-2 overflow-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[120px]">Statistic</TableHead>
+            {cols.map((c) => (
+              <TableHead key={c} className="min-w-[120px]">
+                {c}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((r) => (
+            <TableRow key={r.key}>
+              <TableCell className="font-medium">{r.label}</TableCell>
+              {cols.map((c) => (
+                <TableCell key={c} className="text-right tabular-nums">
+                  {formatNumber(getVal(r.key, c), { maxFractionDigits: r.digits ?? 4 })}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <div className="mt-2 text-xs text-muted-foreground">
+        Showing {cols.length} numeric column{cols.length === 1 ? "" : "s"}.
+      </div>
+    </div>
+  )
 }
 
 export function NodeConfigPanel() {
@@ -77,15 +210,10 @@ export function NodeConfigPanel() {
 
   const activeNodeId = selectedNodeId || ""
 
-  if (!config) {
-    // Keep a mounted panel shell for smooth slide animations
-    return (
-      <div className="smooth pointer-events-none fixed right-0 top-0 z-50 h-full w-[420px] translate-x-full opacity-0" />
-    )
-  }
-
   const panelTitle =
-    config.kind === "dataUpload"
+    !config
+      ? ""
+      : config.kind === "dataUpload"
       ? "Data Upload"
       : config.kind === "preprocessing"
         ? "Preprocessing"
@@ -96,6 +224,7 @@ export function NodeConfigPanel() {
             : "Results"
 
   const validationError = (() => {
+    if (!config) return null
     if (config.kind === "dataUpload") {
       const hasDataset = Boolean((config as any).config?.dataset_id)
       if (!hasDataset && !file) return "Upload a CSV/XLSX file first."
@@ -116,6 +245,7 @@ export function NodeConfigPanel() {
   })()
 
   const onCancel = () => {
+    if (!config) return
     // Undo last Apply if present; otherwise just reset unsaved edits.
     undoLastApply(activeNodeId)
 
@@ -126,6 +256,7 @@ export function NodeConfigPanel() {
   }
 
   const onApply = async () => {
+    if (!config) return
     if (validationError) return
 
     setBusy(true)
@@ -136,12 +267,12 @@ export function NodeConfigPanel() {
       if (config.kind === "dataUpload") {
         if (file) {
           await uploadDataset(activeNodeId, file)
-          push({ title: "Uploaded", description: "Dataset uploaded successfully." })
+          push({ title: "Uploaded", description: "Dataset uploaded successfully.", variant: "success" })
           setFile(null)
         }
       } else {
         updateNodeConfig(activeNodeId, draft)
-        push({ title: "Saved", description: "Node configuration updated." })
+        push({ title: "Saved", description: "Node configuration updated.", variant: "success" })
       }
     } catch (e) {
       // If Apply failed, roll back snapshot to keep undo stack clean.
@@ -155,6 +286,7 @@ export function NodeConfigPanel() {
   const result = resultsPerNode[activeNodeId] as any
 
   const body = (() => {
+    if (!config) return null
     if (config.kind === "dataUpload") {
       const info = (config as any).config?.info
       return (
@@ -279,53 +411,14 @@ export function NodeConfigPanel() {
           {previewStats ? (
             <Card className="p-3">
               <div className="text-sm font-medium">Before (describe)</div>
-              <div className="mt-2">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Column</TableHead>
-                      <TableHead className="text-right">Mean</TableHead>
-                      <TableHead className="text-right">Std</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {describeToRows(previewStats.describe).map((r: any) => (
-                      <TableRow key={r.column}>
-                        <TableCell className="max-w-[160px] truncate">{r.column}</TableCell>
-                        <TableCell className="text-right">{r.mean ?? ""}</TableCell>
-                        <TableCell className="text-right">{r.std ?? ""}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                <div className="mt-2 text-xs text-muted-foreground">Showing up to 8 numeric columns.</div>
-              </div>
+              <DescribeTable describe={previewStats.describe} />
             </Card>
           ) : null}
 
           {result?.statistics?.after?.describe ? (
             <Card className="p-3">
               <div className="text-sm font-medium">After (from pipeline run)</div>
-              <div className="mt-2">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Column</TableHead>
-                      <TableHead className="text-right">Mean</TableHead>
-                      <TableHead className="text-right">Std</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {describeToRows(result.statistics.after.describe).map((r: any) => (
-                      <TableRow key={r.column}>
-                        <TableCell className="max-w-[160px] truncate">{r.column}</TableCell>
-                        <TableCell className="text-right">{r.mean ?? ""}</TableCell>
-                        <TableCell className="text-right">{r.std ?? ""}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <DescribeTable describe={result.statistics.after.describe} />
             </Card>
           ) : null}
         </div>
@@ -334,6 +427,23 @@ export function NodeConfigPanel() {
 
     if (config.kind === "trainTestSplit") {
       const splitResult = resultsPerNode[activeNodeId] as any
+      const presets = [
+        { label: "90 / 10", testSize: 0.1 },
+        { label: "80 / 20", testSize: 0.2 },
+        { label: "75 / 25", testSize: 0.25 },
+        { label: "70 / 30", testSize: 0.3 },
+        { label: "60 / 40", testSize: 0.4 },
+        { label: "50 / 50", testSize: 0.5 },
+      ]
+      const snapToStep = (v: number) => {
+        const step = 0.05
+        const snapped = Math.round(v / step) * step
+        return Number(snapped.toFixed(2))
+      }
+
+      const currentTestSize = snapToStep(Number(draft?.test_size ?? 0.2))
+      const currentPreset = presets.find((p) => Math.abs(p.testSize - currentTestSize) < 1e-9)
+
       return (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -342,14 +452,35 @@ export function NodeConfigPanel() {
           </div>
 
           <div className="space-y-2">
+            <Label>Presets (Train / Test)</Label>
+            <Select
+              disabled={isExecuting}
+              value={currentPreset ? String(currentPreset.testSize) : ""}
+              onValueChange={(v) => setDraft((d: any) => ({ ...d, test_size: snapToStep(Number(v)) }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Custom" />
+              </SelectTrigger>
+              <SelectContent>
+                {presets.map((p) => (
+                  <SelectItem key={p.label} value={String(p.testSize)}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="text-xs text-muted-foreground">Examples: 80 / 20 means 80% train and 20% test.</div>
+          </div>
+
+          <div className="space-y-2">
             <Label>Test size: {(Number(draft?.test_size ?? 0.2) * 100).toFixed(0)}%</Label>
             <Slider
               disabled={isExecuting}
-              value={[Number(draft?.test_size ?? 0.2)]}
+              value={[currentTestSize]}
               min={0.05}
               max={0.95}
               step={0.05}
-              onValueChange={(v) => setDraft((d: any) => ({ ...d, test_size: v[0] }))}
+              onValueChange={(v) => setDraft((d: any) => ({ ...d, test_size: snapToStep(v[0]) }))}
             />
           </div>
 
@@ -416,7 +547,7 @@ export function NodeConfigPanel() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>C</Label>
+                <Label>Regularization strength (C)</Label>
                 <Input
                   type="number"
                   step="0.1"
@@ -424,6 +555,7 @@ export function NodeConfigPanel() {
                   value={draft?.hyperparameters?.C ?? 1.0}
                   onChange={(e) => setDraft((d: any) => ({ ...d, hyperparameters: { ...d.hyperparameters, C: Number(e.target.value) } }))}
                 />
+                <div className="text-xs text-muted-foreground">Higher C = less regularization. Lower C = more regularization.</div>
               </div>
             </div>
           ) : (
@@ -616,9 +748,12 @@ export function NodeConfigPanel() {
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={rows} layout="vertical" margin={{ left: 24, right: 16 }}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis type="number" />
-                        <YAxis type="category" dataKey="feature" width={120} />
-                        <ReTooltip />
+                        <XAxis type="number" tickFormatter={formatAxisNumber} />
+                        <YAxis type="category" dataKey="feature" width={120} tick={{ fontSize: 12 }} />
+                        <ReTooltip
+                          cursor={{ fill: "rgba(255,255,255,0.06)" }}
+                          content={(props) => <FeatureImportanceTooltip {...props} />}
+                        />
                         <Bar dataKey="importance" fill="#8B5CF6" />
                       </BarChart>
                     </ResponsiveContainer>
@@ -637,39 +772,43 @@ export function NodeConfigPanel() {
   return (
     <div
       className={
-        "glass smooth fixed right-0 top-0 z-50 h-full w-[420px] border-l p-4 " +
+        "glass smooth fixed right-0 top-0 z-50 h-full w-[420px] border-l p-4 will-change-transform transition-transform transition-opacity duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] " +
         (isOpen ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-full opacity-0")
       }
     >
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold">{panelTitle}</div>
-        <div className="flex items-center gap-2">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => setSelectedNodeId(undefined)}
-            className="h-8 w-8"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+      {config ? (
+        <>
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold">{panelTitle}</div>
+            <div className="flex items-center gap-2">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setSelectedNodeId(undefined)}
+                className="h-8 w-8"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
 
-      <div className="scroll-gutter mt-4 h-[calc(100%-124px)] overflow-auto pr-4">{body}</div>
+          <div className="scroll-gutter mt-4 h-[calc(100%-124px)] overflow-auto pr-4">{body}</div>
 
-      <div className="mt-4 flex items-center justify-between gap-2">
-        {validationError ? <div className="text-xs text-destructive">{validationError}</div> : <div />}
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={onCancel} disabled={isExecuting || busy}>
-            Cancel
-          </Button>
-          <Button onClick={onApply} disabled={isExecuting || busy || Boolean(validationError)}>
-            Apply
-          </Button>
-        </div>
-      </div>
+          <div className="mt-4 flex items-center justify-between gap-2">
+            {validationError ? <div className="text-xs text-destructive">{validationError}</div> : <div />}
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={onCancel} disabled={isExecuting || busy}>
+                Cancel
+              </Button>
+              <Button onClick={onApply} disabled={isExecuting || busy || Boolean(validationError)}>
+                Apply
+              </Button>
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import * as React from "react"
 
-type ToastVariant = "default" | "destructive"
+type ToastVariant = "default" | "success" | "destructive"
 
 export type ToastItem = {
   id: string
