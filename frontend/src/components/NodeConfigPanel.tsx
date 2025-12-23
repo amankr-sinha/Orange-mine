@@ -185,6 +185,7 @@ export function NodeConfigPanel() {
   const undoLastApply = usePipelineStore((s) => s.undoLastApply)
   const setSelectedNodeId = usePipelineStore((s) => s.setSelectedNodeId)
   const uploadDataset = usePipelineStore((s) => s.uploadDataset)
+  const loadSampleDataset = usePipelineStore((s) => s.loadSampleDataset)
   const isExecuting = usePipelineStore((s) => s.isExecuting)
   const resultsPerNode = usePipelineStore((s) => s.resultsPerNode)
 
@@ -192,14 +193,35 @@ export function NodeConfigPanel() {
 
   const [draft, setDraft] = React.useState<any>(null)
   const [file, setFile] = React.useState<File | null>(null)
+  const [sampleDatasets, setSampleDatasets] = React.useState<Array<{ filename: string; label: string }>>([])
+  const [selectedSample, setSelectedSample] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [previewStats, setPreviewStats] = React.useState<any>(null)
 
   React.useEffect(() => {
     setDraft(config ? structuredClone(config.config) : null)
     setFile(null)
+    setSelectedSample(null)
     setPreviewStats(null)
   }, [selectedNodeId, config])
+
+  React.useEffect(() => {
+    let cancelled = false
+    const fetchSamples = async () => {
+      if (!config || config.kind !== "dataUpload") return
+      try {
+        const res = await api.get("/api/data/samples")
+        const samples = (res.data?.samples || []) as Array<{ filename: string; label: string }>
+        if (!cancelled) setSampleDatasets(samples)
+      } catch {
+        if (!cancelled) setSampleDatasets([])
+      }
+    }
+    fetchSamples()
+    return () => {
+      cancelled = true
+    }
+  }, [config])
 
   const columnsFromData = React.useMemo(() => {
     const dataNode = Object.values(allConfigs).find((c) => c.kind === "dataUpload") as any
@@ -227,7 +249,7 @@ export function NodeConfigPanel() {
     if (!config) return null
     if (config.kind === "dataUpload") {
       const hasDataset = Boolean((config as any).config?.dataset_id)
-      if (!hasDataset && !file) return "Upload a CSV/XLSX file first."
+      if (!hasDataset && !file && !selectedSample) return "Upload a CSV/XLSX file or choose a sample dataset first."
       return null
     }
     if (config.kind === "preprocessing") {
@@ -261,7 +283,7 @@ export function NodeConfigPanel() {
 
     setBusy(true)
     try {
-      // Snapshot current committed config so Cancel can undo this Apply.
+      // Snapshot current committed config so Clear can undo this Apply.
       takeUndoSnapshot(activeNodeId)
 
       if (config.kind === "dataUpload") {
@@ -269,6 +291,10 @@ export function NodeConfigPanel() {
           await uploadDataset(activeNodeId, file)
           push({ title: "Uploaded", description: "Dataset uploaded successfully.", variant: "success" })
           setFile(null)
+        } else if (selectedSample) {
+          await loadSampleDataset(activeNodeId, selectedSample)
+          push({ title: "Loaded", description: "Sample dataset loaded successfully.", variant: "success" })
+          setSelectedSample(null)
         }
       } else {
         updateNodeConfig(activeNodeId, draft)
@@ -297,8 +323,38 @@ export function NodeConfigPanel() {
               type="file"
               accept=".csv,.xlsx,.xls"
               disabled={isExecuting}
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              onChange={(e) => {
+                setFile(e.target.files?.[0] || null)
+                setSelectedSample(null)
+              }}
             />
+
+            {sampleDatasets.length ? (
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-muted-foreground">Sample Datasets</div>
+                <div className="flex flex-wrap gap-2">
+                  {sampleDatasets.map((s) => (
+                    <Button
+                      key={s.filename}
+                      type="button"
+                      variant={selectedSample === s.filename ? "default" : "outline"}
+                      size="sm"
+                      disabled={isExecuting || busy}
+                      onClick={() => {
+                        setSelectedSample(s.filename)
+                        setFile(null)
+                      }}
+                    >
+                      {s.label}
+                    </Button>
+                  ))}
+                </div>
+                {selectedSample ? (
+                  <div className="text-xs text-muted-foreground">Selected sample: {selectedSample}</div>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="text-xs text-muted-foreground">
               {(config as any).config?.fileName ? `Uploaded: ${(config as any).config.fileName}` : "No file uploaded yet."}
             </div>
@@ -796,17 +852,19 @@ export function NodeConfigPanel() {
 
           <div className="scroll-gutter mt-4 h-[calc(100%-124px)] overflow-auto pr-4">{body}</div>
 
-          <div className="mt-4 flex items-center justify-between gap-2">
-            {validationError ? <div className="text-xs text-destructive">{validationError}</div> : <div />}
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={onCancel} disabled={isExecuting || busy}>
-                Cancel
-              </Button>
-              <Button onClick={onApply} disabled={isExecuting || busy || Boolean(validationError)}>
-                Apply
-              </Button>
+          {config.kind !== "results" ? (
+            <div className="mt-4 flex items-center justify-between gap-2">
+              {validationError ? <div className="text-xs text-destructive">{validationError}</div> : <div />}
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={onCancel} disabled={isExecuting || busy}>
+                  Clear
+                </Button>
+                <Button onClick={onApply} disabled={isExecuting || busy || Boolean(validationError)}>
+                  Apply
+                </Button>
+              </div>
             </div>
-          </div>
+          ) : null}
         </>
       ) : null}
     </div>

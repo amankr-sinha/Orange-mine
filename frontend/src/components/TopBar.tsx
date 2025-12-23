@@ -33,6 +33,7 @@ export function TopBar() {
         </Button>
         <Button
           variant="outline"
+          title="Resets Pipeline"
           onClick={() => {
             resetPipeline()
             push({ title: "Reset", description: "Pipeline cleared.", variant: "success" })

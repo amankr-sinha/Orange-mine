@@ -15,6 +15,17 @@ from utils.validators import ValidationError, validate_file_extension
 bp = Blueprint("data", __name__, url_prefix="/api/data")
 
 
+def _backend_data_dir() -> str:
+    # backend/routes -> backend
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
+
+
+def _sample_label_from_filename(filename: str) -> str:
+    base = os.path.splitext(os.path.basename(filename))[0]
+    # iris_dataset -> Iris dataset
+    return base.replace("_", " ").strip().capitalize()
+
+
 @bp.post("/upload")
 def upload() -> Any:
     if "file" not in request.files:
@@ -50,6 +61,60 @@ def upload() -> Any:
     info = DataService.get_dataset_info(dataset_id)
 
     return jsonify({"dataset_id": dataset_id, "info": info})
+
+
+@bp.get("/samples")
+def list_samples() -> Any:
+    data_dir = _backend_data_dir()
+    if not os.path.isdir(data_dir):
+        return jsonify({"samples": []})
+
+    samples = []
+    for name in sorted(os.listdir(data_dir)):
+        path = os.path.join(data_dir, name)
+        if not os.path.isfile(path):
+            continue
+        lower = name.lower()
+        if not (lower.endswith(".csv") or lower.endswith(".xlsx") or lower.endswith(".xls")):
+            continue
+        samples.append({"filename": name, "label": _sample_label_from_filename(name)})
+
+    return jsonify({"samples": samples})
+
+
+@bp.post("/samples/load")
+def load_sample() -> Any:
+    body: Dict[str, Any] = request.get_json(silent=True) or {}
+    filename = body.get("filename")
+    if not filename or not isinstance(filename, str):
+        return jsonify({"error": "Missing filename"}), 400
+
+    # Prevent path traversal; only allow basenames that exist in backend/data.
+    filename = os.path.basename(filename)
+
+    try:
+        validate_file_extension(filename)
+    except ValidationError as e:
+        return jsonify({"error": str(e)}), 400
+
+    data_dir = _backend_data_dir()
+    path = os.path.abspath(os.path.join(data_dir, filename))
+
+    # Ensure the resolved path is still inside backend/data.
+    if os.path.commonpath([data_dir, path]) != data_dir:
+        return jsonify({"error": "Invalid filename"}), 400
+
+    if not os.path.isfile(path):
+        return jsonify({"error": "Sample not found"}), 404
+
+    try:
+        df = DataService.load_dataframe_from_file(path)
+    except Exception as e:
+        return jsonify({"error": f"Failed to parse sample: {e}"}), 400
+
+    dataset_id = DataService.store_dataset(df)
+    info = DataService.get_dataset_info(dataset_id)
+    return jsonify({"dataset_id": dataset_id, "info": info, "fileName": filename})
 
 
 @bp.get("/<dataset_id>/preview")

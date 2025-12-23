@@ -98,6 +98,7 @@ type PipelineState = {
   undoLastApply: (nodeId: string) => void
 
   uploadDataset: (nodeId: string, file: File) => Promise<void>
+  loadSampleDataset: (nodeId: string, filename: string) => Promise<void>
 
   runPipeline: () => Promise<void>
   stopPipeline: () => Promise<void>
@@ -295,6 +296,16 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     const info = res.data.info as DatasetInfo
 
     get().updateNodeConfig(nodeId, { fileName: file.name, dataset_id, info })
+  },
+
+  loadSampleDataset: async (nodeId, filename) => {
+    const res = await api.post("/api/data/samples/load", { filename })
+
+    const dataset_id = res.data.dataset_id as string
+    const info = res.data.info as DatasetInfo
+    const fileName = (res.data.fileName as string | undefined) ?? filename
+
+    get().updateNodeConfig(nodeId, { fileName, dataset_id, info })
   },
 
   runPipeline: async () => {
