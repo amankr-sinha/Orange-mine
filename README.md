@@ -48,7 +48,9 @@ python app.py
 ```
 
 Frontend expects the backend at `http://localhost:5000` by default.
-You can override with `VITE_API_BASE_URL` in `frontend/.env`.
+
+
+On Railway / Docker deployment, the frontend is served by Flask and the API is on the **same origin**, so uploads and API calls use same-origin requests automatically.
 
 ## Docker (single container)
 
